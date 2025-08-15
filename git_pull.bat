@@ -1,3 +1,3 @@
 @echo off
-cd /d "C:\booking"
+cd /d "C:\booking\villamas.github.io"
 git pull
