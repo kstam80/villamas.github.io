@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Meeting Room Reservation</title>
+  <style>
+    body { font-family: Arial; margin: 20px; }
+    label { display: block; margin-top: 10px; }
+    input, select { padding: 5px; margin-top: 5px; width: 220px; }
+    button { margin-top: 10px; padding: 8px 15px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { border: 1px solid #aaa; padding: 8px; text-align: left; }
+    .admin { color: green; font-weight: bold; }
+    #loginForm, #bookingSection, #adminPanel { display: none; }
+  </style>
+</head>
+<body>
+
+  <h2>Villamas Meeting Room Reservation</h2>
+
+  <div id="loginForm">
+    <h3>Login</h3>
+    <label>Username:
+      <input type="text" id="loginUser" />
+    </label>
+    <label>Password:
+      <input type="password" id="loginPass" />
+    </label>
+    <button onclick="login()">Login</button>
+  </div>
+
+  <div id="adminPanel">
+    <h3>Admin Panel - User Management</h3>
+    <label>New Client Username:
+      <input type="text" id="newClientUser" />
+    </label>
+    <label>New Client Password:
+      <input type="password" id="newClientPass" />
+    </label>
+    <button onclick="addClient()">Add Client</button>
+    <h4>Registered Clients:</h4>
+    <ul id="clientList"></ul>
+  </div>
+
+  <div id="bookingSection">
+    <p>You are logged in as: <span id="roleLabel"></span></p>
+  <button type="button" onclick="logout()">Logout</button>
+
+    <form id="bookingForm">
+      <label>Room:
+        <select id="room" required>
+          <option value="Room 1">Room 1</option>
+          <option value="Room 2">Room 2</option>
+          <option value="Room 3">Room 3</option>
+        </select>
+      </label>
+
+      <label>Date:
+        <input type="date" id="date" required>
+      </label>
+
+      <label>Start Time:
+        <input type="time" id="startTime" step="900" min="09:00" max="17:00" required>
+      </label>
+
+      <label>End Time:
+        <input type="time" id="endTime" step="900" min="09:00" max="17:00" required>
+      </label>
+
+      <label>Your Name:
+        <input type="text" id="name" required>
+      </label>
+
+      <label>Purpose:
+        <input type="text" id="purpose" required>
+      </label>
+
+      <button type="submit">Book Now</button>
+      <button type="button" onclick="exportHTML()">Export HTML</button>
+      <button type="button" onclick="exportPDF()">Export PDF</button>
+      <button type="button" id="resetBtn" onclick="resetBookings()">Reset Bookings</button>
+    </form>
+
+    <div class="bookings">
+      <h3>Current Bookings</h3>
+      <table id="bookingTable">
+        <thead>
+          <tr>
+            <th>Room</th>
+            <th>Date</th>
+            <th>Time</th>
+            <th>Name</th>
+            <th>Purpose</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+<script>
+  // Admin credentials
+  const ADMIN_USER = 'admin';
+  const ADMIN_PASS = 'admin123';
+
+  let currentUser = null;
+  let isAdmin = false;
+  let bookings = JSON.parse(localStorage.getItem('bookings') || '[]');
+  let clients = JSON.parse(localStorage.getItem('clients') || '{}');
+
+  const loginForm = document.getElementById('loginForm');
+  const bookingSection = document.getElementById('bookingSection');
+  const adminPanel = document.getElementById('adminPanel');
+  const clientList = document.getElementById('clientList');
+  const roleLabel = document.getElementById('roleLabel');
+  const resetBtn = document.getElementById('resetBtn');
+  const tableBody = document.querySelector('#bookingTable tbody');
+
+  function show(element) { element.style.display = 'block'; }
+  function hide(element) { element.style.display = 'none'; }
+
+  function login() {
+    const user = document.getElementById('loginUser').value.trim();
+    const pass = document.getElementById('loginPass').value.trim();
+
+    if (user === ADMIN_USER && pass === ADMIN_PASS) {
+      isAdmin = true;
+      currentUser = user;
+    } else if (clients[user] && clients[user] === pass) {
+      isAdmin = false;
+      currentUser = user;
+    } else {
+      alert("Invalid login.");
+      return;
+    }
+
+    hide(loginForm);
+    show(bookingSection);
+    roleLabel.textContent = isAdmin ? "Admin" : "Client";
+    resetBtn.style.display = isAdmin ? 'inline' : 'none';
+
+    if (isAdmin) {
+      show(adminPanel);
+      renderClients();
+    }
+
+    renderBookings();
+  }
+
+  function addClient() {
+    const user = document.getElementById('newClientUser').value.trim();
+    const pass = document.getElementById('newClientPass').value.trim();
+    if (!user || !pass) {
+      alert("Enter username and password.");
+      return;
+    }
+    if (clients[user]) {
+      alert("User already exists.");
+      return;
+    }
+    clients[user] = pass;
+    localStorage.setItem('clients', JSON.stringify(clients));
+    renderClients();
+    document.getElementById('newClientUser').value = '';
+    document.getElementById('newClientPass').value = '';
+  }
+
+  function deleteClient(username) {
+    if (confirm(`Delete client "${username}"?`)) {
+      delete clients[username];
+      localStorage.setItem('clients', JSON.stringify(clients));
+      renderClients();
+    }
+  }
+
+  function renderClients() {
+    clientList.innerHTML = '';
+    for (let user in clients) {
+      const li = document.createElement('li');
+      li.innerHTML = `${user} <button onclick="deleteClient('${user}')">Delete</button>`;
+      clientList.appendChild(li);
+    }
+  }
+
+  function formatDate(dateStr) {
+    const [y, m, d] = dateStr.split("-");
+    return `${d}/${m}/${y}`;
+  }
+  function canDeleteBooking(booking) {
+  return isAdmin || booking.name === currentUser;
+  }
+  
+  function renderBookings() {
+  tableBody.innerHTML = '';
+  bookings.forEach((b, index) => {
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td>${b.room}</td>
+      <td>${formatDate(b.date)}</td>
+      <td>${b.startTime}–${b.endTime}</td>
+      <td>${b.name}</td>
+      <td>${b.purpose}</td>
+      <td>
+        ${canDeleteBooking(b) ? `<button onclick="deleteBooking(${index})">Delete</button>` : ''}
+      </td>
+    `;
+    tableBody.appendChild(row);
+  });
+ }
+  function deleteBooking(index) {
+  if (confirm("Delete this booking?")) {
+    bookings.splice(index, 1);
+    saveBookings();
+    renderBookings();
+  }
+}  
+  function saveBookings() {
+    localStorage.setItem('bookings', JSON.stringify(bookings));
+  }
+  function exportPDF() {
+  window.print();  // Opens the print dialog — user can choose "Save as PDF"
+  }
+  function timesOverlap(s1, e1, s2, e2) {
+    return (s1 < e2 && s2 < e1);
+  }
+
+  document.getElementById('bookingForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const room = document.getElementById('room').value;
+    const date = document.getElementById('date').value;
+    const start = document.getElementById('startTime').value;
+    const end = document.getElementById('endTime').value;
+    const name = document.getElementById('name').value.trim();
+    const purpose = document.getElementById('purpose').value.trim();
+
+    if (!name || !purpose || start >= end) {
+      alert("Invalid input.");
+      return;
+    }
+
+    const conflict = bookings.some(b =>
+      b.room === room && b.date === date && timesOverlap(start, end, b.startTime, b.endTime)
+    );
+    if (conflict) {
+      alert("Time conflict detected.");
+      return;
+    }
+
+    const booking = { room, date, startTime: start, endTime: end, name, purpose };
+    bookings.push(booking);
+    saveBookings();
+    renderBookings();
+    e.target.reset();
+  });
+
+  function exportHTML() {
+    if (bookings.length === 0) {
+      alert("No bookings to export.");
+      return;
+    }
+  
+    let html = `<html><head><title>Bookings</title>
+    <style>table{border-collapse:collapse;width:100%}th,td{border:1px solid #aaa;padding:8px;}</style>
+    </head><body><h2>Bookings</h2><table><tr><th>Room</th><th>Date</th><th>Time</th><th>Name</th><th>Purpose</th></tr>`;
+    bookings.forEach(b => {
+      html += `<tr><td>${b.room}</td><td>${formatDate(b.date)}</td><td>${b.startTime}–${b.endTime}</td><td>${b.name}</td><td>${b.purpose}</td></tr>`;
+    });
+    html += `</table></body></html>`;
+    const blob = new Blob([html], { type: 'text/html' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'bookings.html';
+    link.click();
+  }
+  function logout() {
+  if (confirm("Are you sure you want to logout?")) {
+    currentUser = null;
+    isAdmin = false;
+    hide(bookingSection);
+    hide(adminPanel);
+    show(loginForm);
+    document.getElementById('loginUser').value = '';
+    document.getElementById('loginPass').value = '';
+  }
+}
+  function resetBookings() {
+    if (!isAdmin) return;
+    if (confirm("Delete ALL bookings?")) {
+      bookings = [];
+      saveBookings();
+      renderBookings();
+    }
+  }
+
+  // Show login form at start
+  show(loginForm);
+</script>
+
+</body>
+</html>
+
