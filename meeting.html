@@ -12,17 +12,11 @@
     th, td { border: 1px solid #aaa; padding: 8px; text-align: left; }
     .admin { color: green; font-weight: bold; }
     #loginForm, #bookingSection, #adminPanel { display: none; }
-
-    @media print {
-      button, #loginForm, #adminPanel {
-        display: none !important;
-      }
-    }
   </style>
 </head>
 <body>
 
-  <h2>Meeting Room Reservation</h2>
+  <h2>Villamas Meeting Room Reservation</h2>
 
   <div id="loginForm">
     <h3>Login</h3>
@@ -50,7 +44,7 @@
 
   <div id="bookingSection">
     <p>You are logged in as: <span id="roleLabel"></span></p>
-    <button type="button" onclick="logout()">Logout</button>
+  <button type="button" onclick="logout()">Logout</button>
 
     <form id="bookingForm">
       <label>Room:
@@ -106,12 +100,13 @@
   </div>
 
 <script>
+  // Admin credentials
   const ADMIN_USER = 'admin';
   const ADMIN_PASS = 'admin123';
 
   let currentUser = null;
   let isAdmin = false;
-  let bookings = [];
+  let bookings = JSON.parse(localStorage.getItem('bookings') || '[]');
   let clients = JSON.parse(localStorage.getItem('clients') || '{}');
 
   const loginForm = document.getElementById('loginForm');
@@ -122,8 +117,8 @@
   const resetBtn = document.getElementById('resetBtn');
   const tableBody = document.querySelector('#bookingTable tbody');
 
-  function show(el) { el.style.display = 'block'; }
-  function hide(el) { el.style.display = 'none'; }
+  function show(element) { element.style.display = 'block'; }
+  function hide(element) { element.style.display = 'none'; }
 
   function login() {
     const user = document.getElementById('loginUser').value.trim();
@@ -150,19 +145,7 @@
       renderClients();
     }
 
-    fetchBookings();
-  }
-
-  function logout() {
-    if (confirm("Logout?")) {
-      currentUser = null;
-      isAdmin = false;
-      hide(bookingSection);
-      hide(adminPanel);
-      show(loginForm);
-      document.getElementById('loginUser').value = '';
-      document.getElementById('loginPass').value = '';
-    }
+    renderBookings();
   }
 
   function addClient() {
@@ -173,7 +156,7 @@
       return;
     }
     if (clients[user]) {
-      alert("User exists.");
+      alert("User already exists.");
       return;
     }
     clients[user] = pass;
@@ -184,7 +167,7 @@
   }
 
   function deleteClient(username) {
-    if (confirm(`Delete "${username}"?`)) {
+    if (confirm(`Delete client "${username}"?`)) {
       delete clients[username];
       localStorage.setItem('clients', JSON.stringify(clients));
       renderClients();
@@ -200,53 +183,46 @@
     }
   }
 
-  function canDeleteBooking(b) {
-    return isAdmin || b.name === currentUser;
-  }
-
-  function renderBookings() {
-    tableBody.innerHTML = '';
-    bookings.forEach((b, index) => {
-      const row = document.createElement('tr');
-      row.innerHTML = `
-        <td>${b.room}</td>
-        <td>${formatDate(b.date)}</td>
-        <td>${b.startTime}–${b.endTime}</td>
-        <td>${b.name}</td>
-        <td>${b.purpose}</td>
-        <td>${canDeleteBooking(b) ? `<button onclick="deleteBooking(${index})">Delete</button>` : ''}</td>
-      `;
-      tableBody.appendChild(row);
-    });
-  }
-
-  function fetchBookings() {
-    fetch('/api/bookings')
-      .then(res => res.json())
-      .then(data => {
-        bookings = data;
-        renderBookings();
-      });
-  }
-
-  function saveBookings() {
-    fetch('/api/bookings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(bookings)
-    }).then(fetchBookings);
-  }
-
   function formatDate(dateStr) {
     const [y, m, d] = dateStr.split("-");
     return `${d}/${m}/${y}`;
   }
-
+  function canDeleteBooking(booking) {
+  return isAdmin || booking.name === currentUser;
+  }
+  
+  function renderBookings() {
+  tableBody.innerHTML = '';
+  bookings.forEach((b, index) => {
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td>${b.room}</td>
+      <td>${formatDate(b.date)}</td>
+      <td>${b.startTime}–${b.endTime}</td>
+      <td>${b.name}</td>
+      <td>${b.purpose}</td>
+      <td>
+        ${canDeleteBooking(b) ? `<button onclick="deleteBooking(${index})">Delete</button>` : ''}
+      </td>
+    `;
+    tableBody.appendChild(row);
+  });
+ }
   function deleteBooking(index) {
-    if (confirm("Delete booking?")) {
-      bookings.splice(index, 1);
-      saveBookings();
-    }
+  if (confirm("Delete this booking?")) {
+    bookings.splice(index, 1);
+    saveBookings();
+    renderBookings();
+  }
+}  
+  function saveBookings() {
+    localStorage.setItem('bookings', JSON.stringify(bookings));
+  }
+  function exportPDF() {
+  window.print();  // Opens the print dialog — user can choose "Save as PDF"
+  }
+  function timesOverlap(s1, e1, s2, e2) {
+    return (s1 < e2 && s2 < e1);
   }
 
   document.getElementById('bookingForm').addEventListener('submit', function(e) {
@@ -264,19 +240,26 @@
     }
 
     const conflict = bookings.some(b =>
-      b.room === room && b.date === date && start < b.endTime && b.startTime < end
+      b.room === room && b.date === date && timesOverlap(start, end, b.startTime, b.endTime)
     );
     if (conflict) {
-      alert("Time conflict.");
+      alert("Time conflict detected.");
       return;
     }
 
-    bookings.push({ room, date, startTime: start, endTime: end, name, purpose });
+    const booking = { room, date, startTime: start, endTime: end, name, purpose };
+    bookings.push(booking);
     saveBookings();
+    renderBookings();
     e.target.reset();
   });
 
   function exportHTML() {
+    if (bookings.length === 0) {
+      alert("No bookings to export.");
+      return;
+    }
+  
     let html = `<html><head><title>Bookings</title>
     <style>table{border-collapse:collapse;width:100%}th,td{border:1px solid #aaa;padding:8px;}</style>
     </head><body><h2>Bookings</h2><table><tr><th>Room</th><th>Date</th><th>Time</th><th>Name</th><th>Purpose</th></tr>`;
@@ -290,19 +273,27 @@
     link.download = 'bookings.html';
     link.click();
   }
-
-  function exportPDF() {
-    window.print();
+  function logout() {
+  if (confirm("Are you sure you want to logout?")) {
+    currentUser = null;
+    isAdmin = false;
+    hide(bookingSection);
+    hide(adminPanel);
+    show(loginForm);
+    document.getElementById('loginUser').value = '';
+    document.getElementById('loginPass').value = '';
   }
-
+}
   function resetBookings() {
     if (!isAdmin) return;
-    if (confirm("Reset all bookings?")) {
+    if (confirm("Delete ALL bookings?")) {
       bookings = [];
       saveBookings();
+      renderBookings();
     }
   }
 
+  // Show login form at start
   show(loginForm);
 </script>
 
